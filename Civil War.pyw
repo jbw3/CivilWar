@@ -1,15 +1,68 @@
 # Civil War Game
 
-from livewires import games, color
-import random, math
+from livewires import games
+import color, math, os, random
+pygame = games.pygame
 
-# games.init(950, 700, 300, "Civil War")
-games.init(950, 700, 300)
+class Screen(games.Screen):
+    def __init__(self, width, height, fps, title):
+        # super(Screen, self).__init__(width, height, fps, title)
+        super(Screen, self).__init__(width, height, fps)
+        self.game = None
+        self.can_press = True
+
+    def tick(self):
+        if self.game.playing:
+            # pause game when enter is pressed
+            if games.keyboard.is_pressed(games.K_RETURN) and self.can_press:
+                self.can_press = False
+                if self.game.paused:
+                    self.game.resume()
+                else:
+                    self.game.pause()
+            elif not games.keyboard.is_pressed(games.K_RETURN) and not self.can_press:
+                self.can_press = True
+            # scroll screen when mouse is at edge
+            if not self.game.paused:
+                dx = 0
+                dy = 0
+                if games.mouse.y <= 10:
+                    dy = min(4, self.game.top)
+                elif games.mouse.y <= 20:
+                    dy = min(3, self.game.top)
+                elif games.mouse.y >= games.screen.height - 10:
+                    dy = -min(4, self.game.bottom)
+                elif games.mouse.y >= games.screen.height - 20:
+                    dy = -min(3, self.game.bottom)
+                if games.mouse.x <= 10:
+                    dx = min(4, self.game.left)
+                elif games.mouse.x <= 20:
+                    dx = min(3, self.game.left)
+                elif games.mouse.x >= games.screen.width - 10:
+                    dx = -min(4, self.game.right)
+                elif games.mouse.x >= games.screen.width - 20:
+                    dx = -min(3, self.game.right)
+                if dx != 0 or dy != 0:
+                    self.adjust(dx, dy)
+
+    def adjust(self, dx, dy):
+        self.game.top -= dy
+        self.game.bottom += dy
+        self.game.left -= dx
+        self.game.right += dx
+        for sprite in self.all_objects:
+            sprite.x += dx
+            sprite.y += dy
+
+# initialize screen, mouse, and keyboard
+games.screen = Screen(950, 700, 50, "Civil War")
+games.mouse = games.Mouse()
+games.keyboard = games.Keyboard()
 
 class Color_clicker(games.Text):
     def __init__(self, value, size, color1, color2=None, nonact_color=None,
-                 activated=True, x=0, y=0, top=None, bottom=None, left=None,
-                 right=None, is_collideable=False):
+                 activated=True, func=None, x=0, y=0, top=None, bottom=None,
+                 left=None, right=None, is_collideable=False):
 
         self._color1 = color1
         if color2 == None:
@@ -25,6 +78,7 @@ class Color_clicker(games.Text):
             self._can_press = False
         else:
             self._can_press = True
+        self.func = func
 
         super(Color_clicker, self).__init__(value=value, size=size, color=color1,
                                          x=x, y=y, top=top, bottom=bottom,
@@ -36,7 +90,7 @@ class Color_clicker(games.Text):
             if self.left <= games.mouse.x <= self.right and self.top <= games.mouse.y <= self.bottom:
                 self.color = self._color2
                 if games.mouse.is_pressed(0):
-                    if self._can_press:
+                    if self._can_press and self.func != None:
                         self.func()
             else:
                 self.color = self._color1
@@ -47,9 +101,6 @@ class Color_clicker(games.Text):
             self._can_press = False
         else:
             self._can_press = True
-
-    def func(self):
-        pass
 
     #------Properties------#
 
@@ -92,66 +143,62 @@ class Color_clicker(games.Text):
 
     activated = property(get_activated, set_activated)
 
-class Side_text(Color_clicker):
-    def __init__(self, game, side):
-        self.game = game
-        self.side = side
-        if self.side == "u":
-            value = "Union"
-            y = games.screen.height / 3
-        else:
-            value = "Confederate"
-            y = games.screen.height * 2 / 3
-        super(Side_text, self).__init__(value, 80, color.white, color.red,
-                                        x=games.screen.width / 2, y=y)
+class Cross_hairs(games.Sprite):
+    total = 0
+    image = games.load_image("images/cross_hairs.bmp")
+    def __init__(self, man):
+        super(Cross_hairs, self).__init__(Cross_hairs.image, x=games.mouse.x,
+                                           y=games.mouse.y)
+        Cross_hairs.total += 1
+        self.man = man
+        self.game = man.game
+        self.go_through = True
+        self.is_man = False
+        self.is_water = False
+        self.is_bridge = False
+        self.is_bullet = False
+        self.is_tent = False
 
-    def func(self):
-        if self.side == "u":
-            self.game.sides = "uc"
-        else:
-            self.game.sides = "cu"
+        self._attack = []
 
-        self.game.start()
-
-class Adjuster(games.Sprite):
     def update(self):
-        if games.mouse.y <= 10:
-            self.y += 4
-        elif games.mouse.y <= 20:
-            self.y += 3
-        elif games.mouse.y >= games.screen.height - 10:
-            self.y -= 4
-        elif games.mouse.y >= games.screen.height - 20:
-            self.y -= 3
-        if games.mouse.x <= 10:
-            self.x += 4
-        elif games.mouse.x <= 20:
-            self.x += 3
-        elif games.mouse.x >= games.screen.width - 10:
-            self.x -= 4
-        elif games.mouse.x >= games.screen.width - 20:
-            self.x -= 3
+        self.x = games.mouse.x
+        self.y = games.mouse.y
+        if games.mouse.is_pressed(0):
+            self.append_sprites()
+            self.man.exit_attack_mode()
+            self.destroy()
+        elif games.mouse.is_pressed(2):
+            self.append_sprites()
 
-class Adjuster1(games.Animation):
-    def update(self):
-        if games.mouse.y <= 10:
-            self.y += 4
-        elif games.mouse.y <= 20:
-            self.y += 3
-        elif games.mouse.y >= games.screen.height - 10:
-            self.y -= 4
-        elif games.mouse.y >= games.screen.height - 20:
-            self.y -= 3
-        if games.mouse.x <= 10:
-            self.x += 4
-        elif games.mouse.x <= 20:
-            self.x += 3
-        elif games.mouse.x >= games.screen.width - 10:
-            self.x -= 4
-        elif games.mouse.x >= games.screen.width - 20:
-            self.x -= 3
+    def append_sprites(self):
+        for sprite in self.overlapping_sprites:
+            if sprite in self.game.enemies and sprite not in self._attack:
+                self._attack.append(sprite)
+        print self._attack#temp
 
-class Basic_man(Adjuster):
+    def destroy(self):
+        Cross_hairs.total -= 1
+        super(Cross_hairs, self).destroy()
+
+    #------Properties------#
+
+    ## attack
+    def get_attack(self):
+        return self._attack
+    attack = property(get_attack)
+
+class Woundable(games.Sprite):
+    def wound(self, points):
+        pass
+
+class Basic_man(Woundable):
+    def __init__(self, image, angle=0, x=0, y=0, top=None, bottom=None,
+                 left=None, right=None):
+        super(Basic_man, self).__init__(image, angle, x, y, top, bottom, left,
+                                        right)
+        self._dead = False
+
     def get_speed(self):
         overlaps_water = False
         overlaps_bridge = False
@@ -203,10 +250,42 @@ class Basic_man(Adjuster):
         self.x += speed * math.sin(math.radians(self.angle))
         self.y += speed * -math.cos(math.radians(self.angle))
 
+    def closest_enemy(self, enemies, rad):
+        """ Returns closest enemy in radius 'rad' """
+        enemy = None
+        min_dis = 0
+        for man in enemies:
+            distance = math.sqrt((self.x - man.x)**2 + (self.y - man.y)**2)
+            if distance <= rad and (enemy == None or distance < min_dis):
+                enemy = man
+                min_dis = distance
+        return enemy
+
     def if_overlaps(self):
         pass
 
+    def wound(self, points):
+        self.health -= points
+        if self.health <= 0:
+            self.die()
+
+    def die(self):
+        self._dead = True
+        self.destroy()
+
+    #------Properties------#
+
+    ## dead
+    def get_dead(self):
+        return self._dead
+    dead = property(get_dead)
+
 class Player_man(Basic_man):
+    total = 0
+    def __init__(self, image, angle=0, x=0, y=0):
+        super(Player_man, self).__init__(image, angle, x, y)
+        Player_man.total += 1
+
     def update(self):
         super(Player_man, self).update()
         if self.activated:
@@ -234,9 +313,12 @@ class Player_man(Basic_man):
 
             if games.keyboard.is_pressed(games.K_KP7):
                 self.angle = 315
-
-            # allows player to order sprite to move
-            if games.keyboard.is_pressed(games.K_w):
+            # order sprite to attack
+            if games.keyboard.is_pressed(games.K_a):
+                self.activated = False
+                self.enter_attack_mode()
+            # order sprite to move
+            elif games.keyboard.is_pressed(games.K_w):
                 self.activated = False
                 self.moving = True
 
@@ -250,14 +332,28 @@ class Player_man(Basic_man):
         if self.moving:
             self.move()
 
+    def enter_attack_mode(self):
+        games.mouse.is_visible = False
+        if Cross_hairs.total == 0:
+            cross_hairs = Cross_hairs(self)
+            games.screen.add(cross_hairs)
+
+    def exit_attack_mode(self):
+        games.mouse.is_visible = True
+
     def destroy(self):
+        super(Player_man, self).destroy()
         try:
             self.game.friends.remove(self)
         except(ValueError):
             pass
-        super(Player_man, self).destroy()
+        else:
+            Player_man.total -= 1
+            if Player_man.total == 0:
+                self.game.end()
 
 class Comp_man(Basic_man):
+    total = 0
     def update(self):
         super(Comp_man, self).update()
         if self.moving:
@@ -265,17 +361,21 @@ class Comp_man(Basic_man):
             self.covered += self.get_speed()
 
     def destroy(self):
+        super(Comp_man, self).destroy()
         try:
             self.game.enemies.remove(self)
         except(ValueError):
             pass
-        super(Comp_man, self).destroy()
+        else:
+            Comp_man.total -= 1
+            if Comp_man.total == 0:
+                self.game.end()
 
-class Building_bridge1(Adjuster):
+class Building_bridge(games.Sprite):
     def __init__(self, game, x=0, y=0, top=None, bottom=None,
                  right=None, left=None, angle=0):
-        image = games.load_image("bridge1(building).bmp")
-        super(Building_bridge1, self).__init__(image=image, x=x, y=y, top=top,
+        image = games.load_image("images/bridge1(building).bmp")
+        super(Building_bridge, self).__init__(image=image, x=x, y=y, top=top,
                                                bottom=bottom, right=right,
                                                left=left, angle=angle)
         self.game = game
@@ -290,9 +390,9 @@ class Building_bridge1(Adjuster):
         PlayerE.bridges.append(self)
 
     def update(self):
-        super(Building_bridge1, self).update()
+        super(Building_bridge, self).update()
         if self.timer <= 0:
-            self.bridge = Bridge1(self.game, x=self.x, y=self.y,
+            self.bridge = Bridge(self.game, x=self.x, y=self.y,
                                   angle=self.angle)
             games.screen.add(self.bridge)
             for sprite in self.overlapping_sprites:
@@ -305,10 +405,10 @@ class Building_bridge1(Adjuster):
                 pass
             self.destroy()
 
-class Bridge1(Adjuster):
+class Bridge(games.Sprite):
     def __init__(self, game, x, y, angle=0):
-        image = games.load_image("bridge1.bmp", False)
-        super(Bridge1, self).__init__(image, angle, x, y)
+        image = games.load_image("images/bridge1.bmp", False)
+        super(Bridge, self).__init__(image, angle, x, y)
         self.game = game
         self.go_through = True
         self.is_man = False
@@ -319,9 +419,9 @@ class Bridge1(Adjuster):
 
         self.game.bridges.append(self) # append self to list of bridges
 
-class Wall_rect(Adjuster):
+class Wall_rect(games.Sprite):
     def __init__(self, x, y, angle):
-        super(Wall_rect, self).__init__(games.load_image("wall_rectangle.bmp"),
+        super(Wall_rect, self).__init__(games.load_image("images/wall_rectangle.bmp"),
                                         angle, x, y)
         self.go_through = True
         self.is_man = False
@@ -330,10 +430,10 @@ class Wall_rect(Adjuster):
         self.is_bullet = False
         self.is_tent = False
 
-class Stone_wall(Adjuster):
-    def __init__(self, game, x, y, angle=0):
-        image = games.load_image("stone_wall.bmp", False)
-        super(Stone_wall, self).__init__(image, angle, x, y)
+class Stone_wall(Woundable):
+    def __init__(self, game, angle=0, x=0, y=0, top=None, bottom=None, left=None, right=None):
+        image = games.load_image("images/stone_wall.bmp", False)
+        super(Stone_wall, self).__init__(image, angle, x, y, top, bottom, left, right)
         self.game = game
         self.go_through = False
         self.is_man = False
@@ -347,16 +447,20 @@ class Stone_wall(Adjuster):
 
         self.game.walls.append(self)
 
-    def die(self):
+    def wound(self, points):
+        self.health -= points
         if self.health <= 0:
-            self.is_collideable = False
-            self.rect.destroy()
-            try:
-                self.game.walls.remove(self)
-            except(ValueError):
-                pass
-            self.image = games.load_image("stone_wall_destroyed.bmp")
-            self.lower()
+            self.die()
+
+    def die(self):
+        self.is_collideable = False
+        self.rect.destroy()
+        try:
+            self.game.walls.remove(self)
+        except(ValueError):
+            pass
+        self.image = games.load_image("images/stone_wall_destroyed.bmp")
+        self.lower()
 
     def destroy(self):
         try:
@@ -365,28 +469,29 @@ class Stone_wall(Adjuster):
             pass
         super(Stone_wall, self).destroy()
 
-class Explosion1(Adjuster1):
+class Explosion1(games.Animation):
     def __init__(self, x, y):
-        super(Explosion1, self).__init__(images=["explosion20.bmp",
-                                                 "explosion21.bmp",
-                                                 "explosion22.bmp",
-                                                 "explosion23.bmp",
-                                                 "explosion24.bmp",
-                                                 "explosion25.bmp",
-                                                 "explosion26.bmp",
-                                                 "explosion27.bmp",
-                                                 "explosion28.bmp"],
+        super(Explosion1, self).__init__(images=["images/explosion1.bmp",
+                                                 "images/explosion2.bmp",
+                                                 "images/explosion3.bmp",
+                                                 "images/explosion4.bmp",
+                                                 "images/explosion5.bmp",
+                                                 "images/explosion6.bmp",
+                                                 "images/explosion7.bmp",
+                                                 "images/explosion8.bmp",
+                                                 "images/explosion9.bmp"],
                                          x=x, y=y, n_repeats=1,
                                          repeat_interval=1,
                                          is_collideable=False)
 
-class River1(Adjuster):
-    def __init__(self, image, x, y, angle=0):
+class River(games.Sprite):
+    def __init__(self, image, angle=0, x=0, y=0, top=None, bottom=None,
+                 left=None, right=None):
         if image == 0:
-            image = games.load_image("river1.bmp", False)
+            image = games.load_image("images/river1.bmp", False)
         elif image == 1:
-            image = games.load_image("river2.bmp", False)
-        super(River1, self).__init__(image, angle, x, y)
+            image = games.load_image("images/river2.bmp", False)
+        super(River, self).__init__(image, angle, x, y, top, bottom, left, right)
         self.go_through = True
         self.is_man = False
         self.is_water = True
@@ -394,23 +499,10 @@ class River1(Adjuster):
         self.is_bullet = False
         self.is_tent = False
 
-class Bush(Adjuster):
-    def __init__(self, image, x, y):
-        if image == 1:
-            image = games.load_image("bush.bmp")
-        super(Bush, self).__init__(image, x=x, y=y)
-        self.go_through = False
-        self.is_man = False
-        self.is_water = False
-        self.is_bridge = False
-        self.is_bullet = False
-        self.is_tent = False
-        self.image = image
-
-class Tent1(Adjuster):
+class Tent1(Woundable):
     def __init__(self, game, x, y):
-        image = games.load_image("tent.bmp", False)
-        image1 = games.load_image("tent(destroyed).bmp", False)
+        image = games.load_image("images/tent.bmp", False)
+        image1 = games.load_image("images/tent(destroyed).bmp", False)
         super(Tent1, self).__init__(image, x=x, y=y)
         self.game = game
         self.go_through = False
@@ -484,15 +576,19 @@ class Tent1(Adjuster):
                     self.is_building = False
                     self.building = ""
 
-    def die(self):
+    def wound(self, points):
+        self.health -= points
         if self.health <= 0:
-            self.set_image(self.image_destroyed)
-            self.can_build = False
+            self.die()
 
-class Tent2(Adjuster):
+    def die(self):
+        self.set_image(self.image_destroyed)
+        self.can_build = False
+
+class Tent2(Woundable):
     def __init__(self, game, x, y, angle=0):
-        image = games.load_image("tent.bmp", False)
-        image1 = games.load_image("tent(destroyed).bmp", False)
+        image = games.load_image("images/tent.bmp", False)
+        image1 = games.load_image("images/tent(destroyed).bmp", False)
         super(Tent2, self).__init__(image, angle, x, y)
         self.game = game
         self.starting_y = y
@@ -529,8 +625,7 @@ class Tent2(Adjuster):
                 self.timer -= 1
             else:
                 if self.building == "i":
-                    infantry = CompI(game=self.game,
-                                                    x=self.x - 25,
+                    infantry = CompI(game=self.game, x=self.x - 25,
                                                     y=self.y + 40, order=3,
                                                     angle=180,
                                              to_cover = -self.starting_y + 240)
@@ -539,24 +634,28 @@ class Tent2(Adjuster):
                     artillery = CompA(game = self.game,
                                                       x = self.x + 25,
                                                       y = self.y + 60, order = 3,
-                                                      set_angle = 180,
+                                                      angle = 180,
                                             to_cover = -self.starting_y + 240)
                     games.screen.add(artillery)
 
                 self.is_building = False
                 self.building = ""
 
-    def die(self):
+    def wound(self, points):
+        self.health -= points
         if self.health <= 0:
-            self.set_image(self.image_destroyed)
-            self.can_build = False
+            self.die()
 
-class Flash1(Adjuster):
+    def die(self):
+        self.set_image(self.image_destroyed)
+        self.can_build = False
+
+class Flash1(games.Sprite):
     def __init__(self, image, x, y, angle):
         if image == 1:
-            image = games.load_image("gun_flash.bmp", False)
+            image = games.load_image("images/gun_flash.bmp", False)
         if image == 2:
-            image = games.load_image("cannon_flash.bmp")
+            image = games.load_image("images/cannon_flash.bmp")
         super(Flash1, self).__init__(image, angle, x, y, is_collideable=False)
 
         self.timer = 5
@@ -569,10 +668,14 @@ class Flash1(Adjuster):
         if self.timer == 0:
             self.destroy()
 
-class Bullet(Adjuster):
-    def __init__(self, game, x, y, dy, dx, timer=50, thru_wall=True):
-        image = games.load_image("bullet1.bmp")
-        super(Bullet, self).__init__(image, x=x, y=y, dx=dx, dy=dy)
+class Bullet(games.Sprite):
+    SPEED = 7
+    def __init__(self, game, angle, x, y, timer, thru_wall=True):
+        image = pygame.surface.Surface((1, 1))
+        image.set_colorkey(image.get_at((0, 0)))
+        super(Bullet, self).__init__(image, x=x, y=y,
+                                     dx=Bullet.SPEED*math.sin(math.radians(angle)),
+                                     dy=Bullet.SPEED*-math.cos(math.radians(angle)))
         self.game = game
         self.go_through = True
         self.is_man = False
@@ -589,36 +692,38 @@ class Bullet(Adjuster):
                     self.rect = True
                     break
 
+    def overlap_check(self):
+        for sprite in self.overlapping_sprites:
+            if issubclass(type(sprite), Woundable) and sprite not in self.game.walls:
+                sprite.wound(self.points)
+                self.destroy()
+            if not sprite.go_through:
+                if sprite in self.game.walls:
+                    if not self.rect:
+                        sprite.wound(self.points)
+                        self.destroy()
+                else:
+                    self.destroy()
+
     def update(self):
         super(Bullet, self).update()
-        if self.overlapping_sprites:
-            for sprite in self.overlapping_sprites:
-                if sprite.is_man and sprite not in self.game.walls:
-                    sprite.health -= self.points
-                    sprite.die()
-                    self.destroy()
-                if not sprite.go_through:
-                    if sprite in self.game.walls:
-                        if not self.rect:
-                            sprite.health -= self.points
-                            sprite.die()
-                            self.destroy()
-                    else:
-                        self.destroy()
-
+        self.overlap_check()
         if self.timer > 0:
             self.timer -= 1
         else:
             self.destroy()
 
-class Cannon_ball(Adjuster):
-    def __init__(self, game, x, y, dx, dy):
-        image = games.load_image("cannon_ball.bmp", False)
-        super(Cannon_ball, self).__init__(image, x=x, y=y, dx=dx, dy=dy)
+class Cannon_ball(games.Sprite):
+    SPEED = 7
+    def __init__(self, game, angle, x, y):
+        image = pygame.surface.Surface((2, 2))
+        super(Cannon_ball, self).__init__(image, x=x, y=y,
+                                          dx=Cannon_ball.SPEED*math.sin(math.radians(angle)),
+                                          dy=Cannon_ball.SPEED*-math.cos(math.radians(angle)))
         self.game = game
         self.go_through = True
         self.is_man = False
-        self.timer = 90
+        self.timer = 65
         self.is_water = False
         self.is_bridge = False
         self.is_bullet = True
@@ -635,15 +740,13 @@ class Cannon_ball(Adjuster):
         super(Cannon_ball, self).update()
         if self.overlapping_sprites:
             for sprite in self.overlapping_sprites:
-                if sprite.is_man:
-                    sprite.health -= self.points
-                    sprite.die()
+                if issubclass(type(sprite), Woundable):
+                    sprite.wound(self.points)
                 if not sprite.go_through and not sprite.is_man:
                     if sprite in self.game.walls:
                         if not self.rect:
-                            sprite.health -= self.points
-                            sprite.die()
-                            self.die()
+                            sprite.wound(self.points)
+                            self.die(False)
                     else:
                         self.die()
                 if sprite.is_tent:
@@ -654,32 +757,20 @@ class Cannon_ball(Adjuster):
         else:
             self.die()
 
-    def die(self):
-        bullet = Bullet(self.game, self.x - 1, self.y - 1, -5, -5, 4, False)
-        games.screen.add(bullet)
-        bullet = Bullet(self.game, self.x, self.y - 1, 0, -5, 4, False)
-        games.screen.add(bullet)
-        bullet = Bullet(self.game, self.x + 1, self.y - 1, 5, -5, 4, False)
-        games.screen.add(bullet)
-        bullet = Bullet(self.game, self.x - 1, self.y, -5, 0, 4, False)
-        games.screen.add(bullet)
-        bullet = Bullet(self.game, self.x + 1, self.y, 5, 0, 4, False)
-        games.screen.add(bullet)
-        bullet = Bullet(self.game, self.x - 1, self.y + 1, -5, 5, 4, False)
-        games.screen.add(bullet)
-        bullet = Bullet(self.game, self.x, self.y + 1, 0, 5, 4, False)
-        games.screen.add(bullet)
-        bullet = Bullet(self.game, self.x + 1, self.y + 1, 5, 5, 4, False)
-        games.screen.add(bullet)
+    def die(self, bullets=True):
+        if bullets:
+            for angle in range(0, 360, 45):
+                bullet = Bullet(self.game, angle, self.x, self.y, 4, False)
+                games.screen.add(bullet)
         explosion = Explosion1(x=self.x, y=self.y)
         games.screen.add(explosion)
         self.destroy()
 
-class Rock1(Adjuster):
+class Rock(games.Sprite):
     def __init__(self, image, x, y):
         if image == 1:
-            image = games.load_image("rock1.bmp")
-        super(Rock1, self).__init__(image, x=x, y=y)
+            image = games.load_image("images/rock1.bmp")
+        super(Rock, self).__init__(image, x=x, y=y)
         self.go_through = False
         self.is_man = False
         self.is_water = False
@@ -687,16 +778,16 @@ class Rock1(Adjuster):
         self.is_bullet = False
         self.is_tent = False
 
-class Rectangle(Adjuster):
+class Rectangle(games.Sprite):
     def __init__(self, image, x, y):
         if image == 1 or image == 4:
-            self.rectangle_image = games.load_image("activated_rectangle.bmp")
+            self.rectangle_image = games.load_image("images/activated_rectangle.bmp")
         elif image == 2:
-            self.rectangle_image = games.load_image("activated_rectangle2.bmp")
+            self.rectangle_image = games.load_image("images/activated_rectangle2.bmp")
         elif image == 3:
-            self.rectangle_image = games.load_image("activated_rectangle3.bmp")
+            self.rectangle_image = games.load_image("images/activated_rectangle3.bmp")
         elif image == 5:
-            self.rectangle_image = games.load_image("activated_rectangle1.bmp")
+            self.rectangle_image = games.load_image("images/activated_rectangle1.bmp")
         super(Rectangle, self).__init__(self.rectangle_image, x=x, y=y,
                                         is_collideable=False)
         self.number = image
@@ -706,6 +797,9 @@ class Rectangle(Adjuster):
         if self.get_left() > games.mouse.x or self.get_right() < games.mouse.x or self.get_top() > games.mouse.y or self.get_bottom() < games.mouse.y:
             if games.mouse.is_pressed(0):
                 self.destroy()
+
+        if games.keyboard.is_pressed(games.K_a):
+            self.destroy()
 
         if games.keyboard.is_pressed(games.K_s) and self.number <= 3:
             self.destroy()
@@ -721,7 +815,7 @@ class PlayerI(Player_man):
     """ A Union Infantry Sprite """
     def __init__(self, game, x, y):
         """ Initialize sprite """
-        self.infantry_image = games.load_image(game.sides[0] + "i.bmp")
+        self.infantry_image = games.load_image("images/"+game.sides[0]+"i.bmp")
         super(PlayerI, self).__init__(self.infantry_image, x=x, y=y)
         self.game = game
         self.game.friends.append(self)
@@ -738,8 +832,8 @@ class PlayerI(Player_man):
         self.is_tent = False
         self.health = 1
         self.order = ""
-        self.BASE_SPEED = .5
-        self.WATER_SPEED = .1
+        self.BASE_SPEED = .75
+        self.WATER_SPEED = .15
 
     def update(self):
         super(PlayerI, self).update()
@@ -790,27 +884,18 @@ class PlayerI(Player_man):
 
         # makes sprite shoot
         if self.is_shooting and self.timer == 0:
-            bullet_x = 12 * math.sin(math.radians(self.angle + 20)) + self.x
-            bullet_y = 12 * -math.cos(math.radians(self.angle + 20)) + self.y
-            bullet_dx = 5 * math.sin(math.radians(self.angle))
-            bullet_dy = 5 * -math.cos(math.radians(self.angle))
-
-            flash = Flash1(image=1, x=bullet_x,
-                           y=bullet_y, angle=self.angle)
+            x = 12 * math.sin(math.radians(self.angle + 20)) + self.x
+            y = 12 * -math.cos(math.radians(self.angle + 20)) + self.y
+            flash = Flash1(image=1, x=x,
+                           y=y, angle=self.angle)
             games.screen.add(flash)
-
-            bullet = Bullet(self.game, x=bullet_x, y=bullet_y, dx=bullet_dx, dy=bullet_dy,
-                            timer=40)
+            bullet = Bullet(self.game, self.angle, x, y, 29)
             games.screen.add(bullet)
             self.timer = 250
 
-    def die(self):
-        if self.health <= 0:
-            self.destroy()
-
 class PlayerC(Player_man):
     def __init__(self, game, x, y):
-        image = games.load_image(game.sides[0] + "c.bmp")
+        image = games.load_image("images/"+game.sides[0]+"c.bmp")
         super(PlayerC, self).__init__(image=image, x=x, y=y)
         self.game = game
         self.game.friends.append(self)
@@ -826,8 +911,8 @@ class PlayerC(Player_man):
         self.overlaps_bridge = False
         self.health = 1
         self.order = ""
-        self.BASE_SPEED = 1
-        self.WATER_SPEED = .5
+        self.BASE_SPEED = 1.5
+        self.WATER_SPEED = .75
         self.destroying = None
 
     def update(self):
@@ -872,15 +957,13 @@ class PlayerC(Player_man):
         if self.destroying != None:
             sprite = self.destroying
             if sprite.is_tent:
-                sprite.health -= .01
+                sprite.wound(.01)
                 if sprite.health <= 0:
                     self.destroying = None
-                sprite.die()
             elif sprite.is_man:
-                sprite.health -= .1
+                sprite.wound(.1)
                 if sprite.health <= 0:
                     self.destroying = None
-                sprite.die()
 
     def if_overlaps(self):
         """ Allows sprite to "kill" enemies """
@@ -895,13 +978,9 @@ class PlayerC(Player_man):
                         pass
                     break
 
-    def die(self):
-        if self.health <= 0:
-            self.destroy()
-
 class PlayerA(Player_man):
     def __init__(self, game, x, y):
-        image = games.load_image(game.sides[0] + "a.bmp")
+        image = games.load_image("images/"+game.sides[0]+"a.bmp")
         super(PlayerA, self).__init__(image, x=x, y=y)
         self.game = game
         self.game.friends.append(self)
@@ -920,7 +999,7 @@ class PlayerA(Player_man):
         self.health = 1
         self.is_enemy = False
         self.order = ""
-        self.BASE_SPEED = .1
+        self.BASE_SPEED = .15
         self.WATER_SPEED = 0
 
     def update(self):
@@ -972,30 +1051,21 @@ class PlayerA(Player_man):
 
         # makes sprite shoot
         if self.is_shooting and self.timer == 0:
-            bullet_x = 28 * math.sin(math.radians(self.angle)) + self.x
-            bullet_y = 28 * -math.cos(math.radians(self.angle)) + self.y
-            bullet_dx = 4 * math.sin(math.radians(self.angle))
-            bullet_dy = 4 * -math.cos(math.radians(self.angle))
+            x = 28 * math.sin(math.radians(self.angle)) + self.x
+            y = 28 * -math.cos(math.radians(self.angle)) + self.y
 
-            flash = Flash1(image=2, x=bullet_x,
-                           y=bullet_y, angle=self.angle)
+            flash = Flash1(image=2, x=x,
+                           y=y, angle=self.angle)
             games.screen.add(flash)
 
-            ball = Cannon_ball(self.game, x=bullet_x, y=bullet_y,
-                               dx=bullet_dx, dy=bullet_dy)
+            ball = Cannon_ball(self.game, self.angle, x, y)
             games.screen.add(ball)
             self.timer = 350
 
-    def die(self):
-        if self.health <= 0:
-            self.destroy()
-
 class PlayerE(Player_man):
-
     bridges = []
-
     def __init__(self, game, x, y):
-        image = games.load_image(game.sides[0] + "e.bmp")
+        image = games.load_image("images/"+game.sides[0]+"e.bmp")
         super(PlayerE, self).__init__(image, x=x, y=y)
         self.game = game
         self.game.friends.append(self)
@@ -1011,8 +1081,8 @@ class PlayerE(Player_man):
         self.is_building = False
         self.working_on = None
         self.health = 1
-        self.BASE_SPEED = .5
-        self.WATER_SPEED = .1
+        self.BASE_SPEED = .75
+        self.WATER_SPEED = .15
 
     def update(self):
         super(PlayerE, self).update()
@@ -1054,7 +1124,7 @@ class PlayerE(Player_man):
                         else:
                             for sprite in self.overlapping_sprites:
                                 if sprite.is_water:
-                                    bridge = Building_bridge1(self.game, x=self.x,
+                                    bridge = Building_bridge(self.game, x=self.x,
                                                               y=self.y,
                                                               angle=self.angle)
                                     games.screen.add(bridge)
@@ -1074,16 +1144,10 @@ class PlayerE(Player_man):
                 self.working_on = None
                 self.is_building = False
 
-    def die(self):
-        if self.health <= 0:
-            self.destroy()
-
 class CompI(Comp_man):
-
     total = 0
-
     def __init__(self, game, x, y, order, angle=0, to_cover=0):
-        image = games.load_image(game.sides[1] + "i.bmp")
+        image = games.load_image("images/"+game.sides[1]+"i.bmp")
         super(CompI, self).__init__(image, angle, x, y)
         self.go_through = False
         self.is_man = True
@@ -1102,10 +1166,10 @@ class CompI(Comp_man):
         else:
             self.is_shooting = True
         self.health = 1
-        self.BASE_SPEED = .5
-        self.WATER_SPEED = .1
+        self.BASE_SPEED = .75
+        self.WATER_SPEED = .15
 
-        CompI.total += 1
+        Comp_man.total += 1
         self.game.enemies.append(self)
 
     def update(self):
@@ -1143,29 +1207,17 @@ class CompI(Comp_man):
 
         # makes sprite shoot
         if self.timer == 0 and self.is_shooting:
-            bullet_x = 12 * math.sin(math.radians(self.angle + 20)) + self.x
-            bullet_y = 12 * -math.cos(math.radians(self.angle + 20)) + self.y
-            bullet_dx = 5 * math.sin(math.radians(self.angle))
-            bullet_dy = 5 * -math.cos(math.radians(self.angle))
-
-            flash = Flash1(image=1, x=bullet_x, y=bullet_y, angle=self.angle)
+            x = 12 * math.sin(math.radians(self.angle + 20)) + self.x
+            y = 12 * -math.cos(math.radians(self.angle + 20)) + self.y
+            flash = Flash1(image=1, x=x, y=y, angle=self.angle)
             games.screen.add(flash)
-
-            bullet = Bullet(self.game, x=bullet_x, y=bullet_y, dx=bullet_dx, dy=bullet_dy,
-                            timer=40)
+            bullet = Bullet(self.game, self.angle, x, y, 29)
             games.screen.add(bullet)
             self.timer = 250
 
-    def die(self):
-        if self.health <= 0:
-            CompI.total -= 1
-            if CompI.total == 0:
-                self.game.win()
-            self.destroy()
-
 class CompC(Comp_man):
     def __init__(self, game, x, y, order, angle=0, to_cover=0):
-        image = games.load_image(game.sides[1] + "c.bmp")
+        image = games.load_image("images/"+game.sides[1]+"c.bmp")
         super(CompC, self).__init__(image, angle, x, y)
         self.go_through = False
         self.is_man = True
@@ -1179,11 +1231,11 @@ class CompC(Comp_man):
         self.is_bullet = False
         self.is_tent = False
         self.health = 1
-        self.BASE_SPEED = 1
-        self.WATER_SPEED = .5
+        self.BASE_SPEED = 1.5
+        self.WATER_SPEED = .75
         self.destroying = None
 
-        CompI.total += 1
+        Comp_man.total += 1
         self.game.enemies.append(self)
 
     def update(self):
@@ -1201,15 +1253,13 @@ class CompC(Comp_man):
         if self.destroying != None:
             sprite = self.destroying
             if sprite.is_tent:
-                sprite.health -= .01
+                sprite.wound(.01)
                 if sprite.health <= 0:
                     self.destroying = None
-                sprite.die()
             elif sprite.is_man:
-                sprite.health -= .1
+                sprite.wound(.1)
                 if sprite.health <= 0:
                     self.destroying = None
-                sprite.die()
 
     def if_overlaps(self):
         """ Allows sprite to "kill" enemies """
@@ -1224,23 +1274,15 @@ class CompC(Comp_man):
                         pass
                     break
 
-    def die(self):
-        if self.health <= 0:
-            CompI.total -= 1
-            if CompI.total == 0:
-                self.game.win()
-            self.destroy()
-
 class CompA(Comp_man):
-    def __init__(self, game, x, y, order, set_angle=0, to_cover=0):
-        image = games.load_image(game.sides[1] + "a.bmp")
-        super(CompA, self).__init__(image, set_angle, x, y)
+    def __init__(self, game, x, y, order, angle=0, to_cover=0):
+        image = games.load_image("images/"+game.sides[1]+"a.bmp")
+        super(CompA, self).__init__(image, angle, x, y)
         self.go_through = False
         self.is_man = True
         self.timer = 0
         self.is_water = False
         self.order = order
-        self.set_angle = set_angle
         self.is_bridge = False
         self.game = game
         self.covered = 0
@@ -1254,10 +1296,10 @@ class CompA(Comp_man):
             self.is_shooting = False
         else:
             self.is_shooting = True
-        self.BASE_SPEED = .1
+        self.BASE_SPEED = .15
         self.WATER_SPEED = 0
 
-        CompI.total += 1
+        Comp_man.total += 1
         self.game.enemies.append(self)
 
     def update(self):
@@ -1270,18 +1312,13 @@ class CompA(Comp_man):
             if self.timer == 0:
                 self.angle += 1
 
-        elif self.order == 2:
-            self.angle = self.set_angle
-
         elif self.order == 3:
-            self.angle = self.set_angle
             if self.covered >= self.to_cover:
                 self.moving = False
             else:
                 self.moving = True
 
         elif self.order == 4:
-            self.angle = self.set_angle
             if self.covered >= self.to_cover:
                 self.angle = 0
                 self.moving = False
@@ -1299,181 +1336,282 @@ class CompA(Comp_man):
 
         # makes sprite shoot
         if self.timer == 0 and self.is_shooting:
-            bullet_x = 28 * math.sin(math.radians(self.angle)) + self.x
-            bullet_y = 28 * -math.cos(math.radians(self.angle)) + self.y
-            bullet_dx = 4 * math.sin(math.radians(self.angle))
-            bullet_dy = 4 * -math.cos(math.radians(self.angle))
-
-            flash = Flash1(image=2, x=bullet_x,
-                           y=bullet_y, angle=self.angle)
+            x = 28 * math.sin(math.radians(self.angle)) + self.x
+            y = 28 * -math.cos(math.radians(self.angle)) + self.y
+            flash = Flash1(image=2, x=x,
+                           y=y, angle=self.angle)
             games.screen.add(flash)
-
-            ball = Cannon_ball(self.game, x=bullet_x, y=bullet_y,
-                            dx=bullet_dx, dy=bullet_dy)
+            ball = Cannon_ball(self.game, self.angle, x, y)
             games.screen.add(ball)
             self.timer = 350
 
-    def die(self):
-        if self.health <= 0:
-            CompI.total -= 1
-            if CompI.total == 0:
-                self.game.win()
-            self.destroy()
-
 class Game(object):
     def __init__(self):
+        games.screen.game = self
         self.sides = ""
         self.bridges = []
         self.friends = []
         self.enemies = []
         self.walls = []
+        self.paused = False
 
+        # images for pause menu
+        self.pause_imgs = []
+        img = pygame.surface.Surface((games.screen.width,
+                                      games.screen.height))
+        img.set_alpha(150)
+        sprite = games.Sprite(img, x=games.screen.width/2,
+                              y=games.screen.height/2)
+        self.pause_imgs.append(sprite)
+        sprite = games.Text("Paused", 80, color.WHITE, x=games.screen.width/2,
+                            y=75)
+        self.pause_imgs.append(sprite)
+        sprite = games.Text("Commands:", 50, color.WHITE, x=games.screen.width/2,
+                            y=150)
+        self.pause_imgs.append(sprite)
+        file = open(os.path.join("instructions", "commands.txt"), "r")
+        line = file.readline().rstrip()
+        y = 200
+        while line != "":
+            sprite = games.Text(line, 30, color.WHITE,
+                                left=games.screen.width/2-100, y=y)
+            self.pause_imgs.append(sprite)
+            y += 30
+            line = file.readline().rstrip()
+        file.close()
+
+        self.setup()
+
+    def setup(self):
+        games.screen.clear()
+        self.playing = False
+        games.screen.background = pygame.surface.Surface((games.screen.width, games.screen.height))
         self.pick_side()
 
     def pick_side(self):
-        for i in ["u", "c"]:
-            text = Side_text(self, i)
-            games.screen.add(text)
+        def func():
+            self.sides = "uc"
+            self.pick_map()
+        text = Color_clicker("Union", 80, color.WHITE, color.BLUE, func=func,
+                             x=games.screen.width/2,
+                             y=games.screen.height/3)
+        games.screen.add(text)
+        def func():
+            self.sides = "cu"
+            self.pick_map()
+        text = Color_clicker("Confederate", 80, color.WHITE, color.GRAY,
+                             func=func, x=games.screen.width/2,
+                             y=games.screen.height*2/3)
+        games.screen.add(text)
+
+    def pick_map(self):
+        games.screen.clear()
+        x = games.screen.width / 3
+        for i in range(2):
+            def func(num=i):
+                self.map = num
+                self.start()
+            self.map_text = Color_clicker(str(i+1), 80, color.WHITE, color.RED, func=func,
+                                 x=x, y=games.screen.height/2)
+            games.screen.add(self.map_text)
+            x += games.screen.width / 3
 
     def start(self):
         games.screen.clear()
-
+        self.playing = True
         # establish background
-        games.screen.background = games.load_image("grass1.bmp", False)
+        games.screen.background = games.load_image("images/grass1.bmp", False)
 
-        self.river1 = River1(image=0, x=(games.screen.width / 2) + 1750, y=-200)
-        games.screen.add(self.river1)
+        self.add_terrain()
+        self.add_men()
 
-        self.river2 = River1(image=1, x=self.river1.left, y=-200,
-                             angle=90)
-        games.screen.add(self.river2)
+    def add_terrain(self):
+        if self.map == 0:
+            # bounderies
+            self.top = 1300
+            self.bottom = 600
+            self.left = 1000
+            self.right = 250
 
-        bridge1 = Bridge1(game=self, x=500, y=-200)
-        games.screen.add(bridge1)
+            self.river1 = River(image=0, x=(games.screen.width / 2) + 1750, y=-200)
+            games.screen.add(self.river1)
 
-        x = 200
-        y = 240
-        for j in range(4):
-            infantry = PlayerI(game=self, x=x, y=y)
-            games.screen.add(infantry)
-            x += 100
+            self.river2 = River(image=1, angle=90, x=-275, y=0)
+            games.screen.add(self.river2)
 
-        tent = Tent1(game=self, x=-750, y=-775)
-        games.screen.add(tent)
+            bridge1 = Bridge(game=self, x=500, y=-200)
+            games.screen.add(bridge1)
 
-        cavalry = PlayerC(self, x=-650, y=-775)
-        games.screen.add(cavalry)
+            x = 190
+            y = 145
+            for j in range(9):
+                wall = Stone_wall(self, x, y)
+                games.screen.add(wall)
+                x += 40
 
-        cavalry = PlayerC(self, x=-850, y=-775)
-        games.screen.add(cavalry)
+            for j in range(3):
+                x = random.randrange(-1000, 250)
+                y = random.randrange(-1300, 600)
+                rock = Rock(image=1, x=x, y=y)
+                games.screen.add(rock)
+                for sprite in rock.overlapping_sprites:
+                    if sprite.is_man:
+                        rock.destroy()
+        elif self.map == 1:
+            # bounderies
+            self.top = 1000
+            self.bottom = 50
+            self.left = 500
+            self.right = 500
 
-        tent1 = Tent1(game=self, x=350, y=450)
-        games.screen.add(tent1)
+            right = left = games.screen.width/2
+            for i in range(20):
+                wall = Stone_wall(self, right=right, y=-200)
+                games.screen.add(wall)
+                right = wall.left
+                wall = Stone_wall(self, left=left, y=-200)
+                games.screen.add(wall)
+                left = wall.right
 
-        cavalry = PlayerC(self, x=450, y=450)
-        games.screen.add(cavalry)
+    def add_men(self):
+        if self.map == 0:
+            x = 200
+            y = 240
+            for j in range(4):
+                infantry = PlayerI(game=self, x=x, y=y)
+                games.screen.add(infantry)
+                x += 100
 
-        cavalry = PlayerC(self, x=250, y=450)
-        games.screen.add(cavalry)
-
-        x = 190
-        y = 145
-        for j in range(9):
-            wall = Stone_wall(self, x, y)
-            games.screen.add(wall)
-            x += 40
-
-        x = 200
-        y = -300
-        for j in range(3):
-            infantry2 = CompI(self, x=x, y=y, order=3, angle=180,
-                                             to_cover=520)
-            games.screen.add(infantry2)
-            x += 100
-
-        artillery = CompA(self, x=500, y=-300, order=5,
-                                          set_angle=180)
-        games.screen.add(artillery)
-
-        x = 200
-        y = -600
-        for j in range(2):
-            for j in range(6):
-                infantry2 = CompI(self, x=x, y=y, order=4,
-                                                 angle=180, to_cover=1010)
-                games.screen.add(infantry2)
-                x += 50
-            x = 125
-            y = -650
-
-        x = -125
-        y = -850
-        for j in range(5):
-            infantry = CompI(game=self, x=x, y=y, angle=270,
-                                            order=5)
-            games.screen.add(infantry)
-            y += 25
-
-        x = 250
-        y = -775
-        for j in range(2):
-            tent = Tent2(game=self, x=x, y=y)
+            tent = Tent1(game=self, x=-750, y=-775)
             games.screen.add(tent)
-            x += 100
 
-        x = 200
-        y = -765
-        for j in range(3):
-            infantry2 = CompI(game=self, x=x, y=y,
-                                                 order=2, angle=180)
-            games.screen.add(infantry2)
+            cavalry = PlayerC(self, x=-650, y=-775)
+            games.screen.add(cavalry)
 
-            infantry = CompI(game=self, x=x, y=y - 20,
-                                                 order=2, angle=0)
-            games.screen.add(infantry)
-            x += 100
+            cavalry = PlayerC(self, x=-850, y=-775)
+            games.screen.add(cavalry)
 
-        x = random.choice([-1, 1]) * 900
-        y = random.choice([-1, 1]) * 1200
-        for j in range(2):
-            for k in range(5):
-                cavalry = CompC(self, x=x, y=y, order=1)
-                games.screen.add(cavalry)
+            tent1 = Tent1(game=self, x=350, y=450)
+            games.screen.add(tent1)
+
+            cavalry = PlayerC(self, x=450, y=450)
+            games.screen.add(cavalry)
+
+            cavalry = PlayerC(self, x=250, y=450)
+            games.screen.add(cavalry)
+
+            x = 200
+            y = -300
+            for j in range(3):
+                infantry2 = CompI(self, x=x, y=y, order=3, angle=180,
+                                                 to_cover=520)
+                games.screen.add(infantry2)
+                x += 100
+
+            artillery = CompA(self, x=500, y=-300, order=5,
+                                              angle=180)
+            games.screen.add(artillery)
+
+            x = 200
+            y = -600
+            for j in range(2):
+                for j in range(6):
+                    infantry2 = CompI(self, x=x, y=y, order=4,
+                                                     angle=180, to_cover=1010)
+                    games.screen.add(infantry2)
+                    x += 50
+                x = 125
+                y = -650
+
+            x = -125
+            y = -850
+            for j in range(5):
+                infantry = CompI(game=self, x=x, y=y, angle=270,
+                                                order=5)
+                games.screen.add(infantry)
+                y += 25
+
+            x = 250
+            y = -775
+            for j in range(2):
+                tent = Tent2(game=self, x=x, y=y)
+                games.screen.add(tent)
+                x += 100
+
+            x = 200
+            y = -765
+            for j in range(3):
+                infantry2 = CompI(game=self, x=x, y=y,
+                                                     order=2, angle=180)
+                games.screen.add(infantry2)
+
+                infantry = CompI(game=self, x=x, y=y - 20,
+                                                     order=2, angle=0)
+                games.screen.add(infantry)
+                x += 100
+
+            x = 900 * random.choice([-1, 1])
+            y = 1200 * random.choice([-1, 1])
+            for j in range(2):
+                for k in range(5):
+                    cavalry = CompC(self, x=x, y=y, order=1)
+                    games.screen.add(cavalry)
+                    x += 50
+                x -= 250
+                y += 50
+        elif self.map == 1:
+            x = games.screen.width/2 - 150
+            y = games.screen.height/2
+            for i in range(7):
+                for j in range(3):
+                    man = PlayerI(self, x, y)
+                    games.screen.add(man)
+                    y += 50
+                y = games.screen.height/2
                 x += 50
-            x -= 250
-            y += 50
 
-        for j in range(5):
-            x = random.randrange(200, 500)
-            y = random.randrange(500, 600)
-            bush = Bush(image=1, x=x, y=y)
-            games.screen.add(bush)
+            man = CompI(self, games.screen.width/2, -220,
+                        angle=180, order=5)
+            games.screen.add(man)
+            x = 75
+            for i in range(7):
+                man = CompI(self, games.screen.width/2+x, -220,
+                            angle=180, order=5)
+                games.screen.add(man)
+                man = CompI(self, games.screen.width/2-x, -220,
+                            angle=180, order=5)
+                games.screen.add(man)
+                x += 75
+            cannon = CompA(self, 1250, -230, angle=180, order=5)
+            games.screen.add(cannon)
+            cannon = CompA(self, -300, -230, angle=180, order=5)
+            games.screen.add(cannon)
 
-        for j in range(8):
-            x = random.randrange(-2000, 2000)
-            y = random.randrange(-2000, 2000)
-            bush = Bush(image=1, x=x, y=y)
-            games.screen.add(bush)
-            for sprite in bush.overlapping_sprites:
-                if sprite.is_water or sprite.is_man:
-                    bush.destroy()
+    def pause(self):
+        self.paused = True
+        for sprite in games.screen.all_objects:
+            sprite.stop()
+        for sprite in self.pause_imgs:
+            games.screen.add(sprite)
 
-        for j in range(5):
-            x = random.randrange(-2000, 2000)
-            y = random.randrange(-2000, 2000)
-            rock = Rock1(image=1, x=x, y=y)
-            games.screen.add(rock)
-            for sprite in rock.overlapping_sprites:
-                if sprite.is_man:
-                    rock.destroy()
+    def resume(self):
+        self.paused = False
+        for sprite in games.screen.all_objects:
+            sprite.start()
+        for sprite in self.pause_imgs:
+            games.screen.remove(sprite)
 
-    def win(self):
-        self.won_message = games.Message(value="You Won!", size=90,
-                                         color=color.red,
-                                         x=games.screen.width/2,
-                                         y=games.screen.height/2, lifetime=500,
-                                         is_collideable=False)
-        games.screen.add(self.won_message)
+    def end(self):
+        if Player_man.total == 0:
+            text = "Game Over!"
+        elif Comp_man.total == 0:
+            text = "You Won!"
+        message = games.Message(text, 90, color.RED,
+                                x=games.screen.width/2,
+                                y=games.screen.height/2, lifetime=450,
+                                after_death=self.setup,
+                                is_collideable=False)
+        games.screen.add(message)
 
 def main():
     civil_war = Game()

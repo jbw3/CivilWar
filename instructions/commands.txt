@@ -1,0 +1,8 @@
+Up - face up
+Down - face down
+Right - face right
+Left - face left
+f - fire
+r - rotate
+s - sentry
+w - walk
